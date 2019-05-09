@@ -1,0 +1,957 @@
+---
+title: "unused cdoe"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(rvest)   # rvest::zillow		Scrape housing info from tripadvisor
+library(lubridate)
+library(stringr)
+library(broom) # For problem 3
+library(stringi)
+library(ggplot2)
+
+library(RCurl)
+library(XML)
+library(ZillowR)
+
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readxl)
+library(reshape2)
+library(rgdal)
+```
+
+## Zillow
+
+```{r}
+library(jsonlite)
+
+zillow2 <- fromJSON("http://files.zillowstatic.com/research/public/StaticFiles/Decade/Data/LatLongs/Philadelphia_2010.json")
+
+zillow3 <- read_csv("http://files.zillowstatic.com/research/public/County/County_MedianListingPricePerSqft_AllHomes.csv", col_names = TRUE) #%>% subset(State=="PA" & MunicipalCodeFIPS==101) #county philadelphia
+
+zillow4 <- read_csv("http://files.zillowstatic.com/research/public/County/County_MedianValuePerSqft_AllHomes.csv", col_names = TRUE) #%>% subset(RegionID==3175) #county philadelphia
+
+zillow5 <- read_csv("http://files.zillowstatic.com/research/public/County/County_Zhvi_AllHomes.csv", col_names = TRUE) #county philadelphia
+
+```
+
+# using rvest::zillow demo
+# my search
+https://www.zillow.com/homes/for_sale/Philadelphia-PA/fsba,fsbo,fore,new_lt/house,mobile,townhouse_type/13271_rid/3-_beds/1.5-_baths/0-600000_price/0-2390_mp/globalrelevanceex_sort/40.142664,-74.848824,39.814865,-75.439339_rect/10_zm/0_mmm/
+# current listing in photo card 1st page
+# demo
+
+```{r}
+# Inspired by https://github.com/notesofdabbler
+
+
+page <- read_html(zp_urls$ad[2])
+
+houses <- page %>%
+  html_nodes(".photo-cards li article")
+bind_rows(lapply(xml_attrs(houses), function(x) data.frame(as.list(x), stringsAsFactors=FALSE)))
+
+z_id <- houses %>% html_attr("id")
+
+address <- houses %>%
+  html_node(".zsg-photo-card-address") %>%
+  html_text()
+
+price <- houses %>%
+  html_node(".zsg-photo-card-price") %>%
+  html_text() %>%
+  readr::parse_number()
+
+params <- houses %>%
+  html_node(".zsg-photo-card-info") %>%
+  html_text() %>%
+  strsplit("\u00b7")
+
+beds <- params %>% purrr::map_chr(1) %>% readr::parse_number()
+
+baths <- params %>% purrr::map_chr(2) %>% readr::parse_number(default = "")
+
+house_area <- params %>% purrr::map_chr(3) %>% readr::parse_number()
+
+```
+
+
+```{r}
+zilow_dwnload <- xmlParse("http://files.zillowstatic.com/")%>%xmlToList()%>%select(Content$Key)%>%as_tibble()
+#can only select one list
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+#
+#  Explore Zillow data using rvest
+# 
+#  rvest package currently under development by Hadley Wickham
+#  https://github.com/hadley/rvest
+#
+
+library(rvest)
+library(magrittr)
+
+# here the search is filtered to just homes for sale
+# if there are less filters in search, the code will need to be modified since the css might be different
+# for different types of results (eg. homes for sales vs new homes vs homes for rent)
+url <- 'https://www.zillow.com/homes/?searchQueryState={"mapBounds":{"west":-75.38788418457034,"east":-74.84818081542971,"south":39.845515939525285,"north":40.159388222934766},"usersSearchTerm":"Philadelphia%20PA","regionSelection":[{"regionId":13271,"regionType":6}],"isMapVisible":true,"mapZoom":11,"filterState":{"isPreMarketForeclosure":{"value":false},"isPreMarketPreForeclosure":{"value":false},"isMakeMeMove":{"value":false}},"isListVisible":true,"pagination":{"currentPage":2}}'
+
+# get list of houses for sales that appears on the page
+houselist <- url%>%html()%>%html_node("article")
+
+# Extract zillow id for each listing
+zpid <- houselist%>%html_attr("id")
+
+# get the address for each listing
+staddrlink <- houselist%>%html_node(".property-address a")%>%html_attr("href")
+straddr <- sapply(strsplit(staddrlink,"/"),function(x) x[3])
+
+# get the area of lot
+
+lotsqfttxt <- lapply(houselist,function(x) x%>%html_node(".property-lot")%>%html_text())
+# comment for above line: 
+# Ideally I want to use the following line instead of the line above
+#
+# lotsqfttxt=houselist%>%html_node(".property-lot")%>%html_text()
+#
+# however if certain houses don't have .property-lot, 
+# then it returns lesser number of entries than number of houses
+# This makes combining this data with other house data difficult
+#
+
+## extract numerical value of lot area in sqft (do unit conversion from acre to sqft if needed)
+lotsqft <- sapply(lotsqfttxt,
+                  function(x) {
+                     if(length(x)==0){
+                       xsqftnum=NA
+                       return(xsqftnum)
+                     } else {
+                       xsplit=strsplit(x," ")[[1]]
+                       xsqftnum=as.numeric(gsub(",","",xsplit[1]))
+                       if ((tolower(xsplit[2]) == "ac") | (tolower(xsplit[2]) == "acre")) {
+                         xsqftnum=xsqftnum*43560
+                       }  
+                     }
+                     
+                     return(xsqftnum)
+                  })
+
+
+# year house was built
+yrbuilt <- houselist%>%html_node(".property-year")%>%html_text()%>%gsub("Built in ","",.)%>%as.numeric()
+
+# price of house
+price <- houselist%>%html_node(".price-large")%>%html_text()%>%gsub("[\\$a-zA-Z,]","",.)%>%as.numeric()
+
+# house parameters (number of beds, baths, house area)
+houseparams <- houselist%>%html_node(".property-data")%>%html_text()
+houseparamsSplit <- strsplit(houseparams,", ")
+## get number of beds
+numbeds <- sapply(houseparamsSplit,function(x) as.numeric(strsplit(x[1]," ")[[1]][1]))
+## get number of baths
+numbaths <- sapply(houseparamsSplit,function(x) as.numeric(strsplit(x[2]," ")[[1]][1]))
+## get house area in sqft (convert from acre to sqft if needed)
+housesqft <- sapply(houseparamsSplit,
+               function(x){
+                 xsplit=strsplit(x[3]," ")[[1]]
+                 xsqft=as.numeric(gsub(",","",xsplit[1]))
+                 if((tolower(xsplit[2]) == "ac") | (tolower(xsplit[2]) == "acre")) {
+                   # convert acre to sqft
+                   xsqft=xsqft*43560
+                 }
+                 return(xsqft)
+               })
+
+# bring all the house variables together into a dataframe
+houseData <- data.frame(zpid,price,yrbuilt,numbeds,numbaths,housesqft,lotsqft,straddr)
+
+head(houseData)
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+url <- "http://www.zillow.com/homes/for_sale/VT/58_rid/any_days/45.537137,-69.062805,42.187829,-75.846863_rect/7_zm/"
+# I manually checked the source html to find the correct node to read
+more.urls <- read_html(url) %>%
+  html_nodes(".zsg-pagination a") %>%
+  html_attr("href") 
+# See how high the pagination goes
+more.urls <- more.urls[!is.na(more.urls)]
+more.urls <- strsplit(more.urls, '/')
+more.urls <- lapply(more.urls, function(x) x[length(x)])
+more.urls <- as.numeric(gsub('[_p]','', more.urls))
+more.urls <- max(more.urls)
+# Now paste together a url for each page
+urls <- c(url, paste0(url,2:more.urls,'_p/'))
+
+urls
+
+
+```
+
+
+```{r}
+# The scraper function
+getZillow <- function(urls) {
+    # return a list of html <article></article> tags, one for each URL
+    lapply(urls, function(u) {
+        # call out the at-bat url in case there is an error
+        cat(u, '\n')
+        houses <- read_html(u) %>%
+          html_nodes("article")
+        houses
+    })
+}
+zdata2 <- getZillow(urls)
+as.character(zdata2[[1]][1])
+
+```
+
+```{r}
+results <- xmlToList(zr_xml$response[["properties"]])
+
+getValRange <- function(x, hilo) {
+  ifelse(hilo %in% unlist(dimnames(x)), x["text",hilo][[1]], NA)
+}
+
+out <- apply(results, MAR=2, function(property) {
+  zpid <- property$zpid
+  links <- unlist(property$links)
+  address <- unlist(property$address)
+  z <- property$zestimate
+  zestdf <- list(
+    amount=ifelse("text" %in% names(z$amount), z$amount$text, NA),
+    lastupdated=z$"last-updated",
+    valueChange=ifelse(length(z$valueChange)==0, NA, z$valueChange),
+    valueLow=getValRange(z$valuationRange, "low"),
+    valueHigh=getValRange(z$valuationRange, "high"),
+    percentile=z$percentile)  
+  list(id=zpid, links, address, zestdf)
+})
+
+data <- as.data.frame(do.call(rbind, lapply(out, unlist)), 
+  row.names=seq_len(length(out)))
+```
+
+###
+unlist(results)
+                                                                                 principal.zpid 
+                                                                                      "9396682" 
+                                                                    principal.links.homedetails 
+               "https://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/" 
+                                                                  principal.links.graphsanddata 
+"http://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/#charts-and-data" 
+                                                                    principal.links.mapthishome 
+                                                    "http://www.zillow.com/homes/9396682_zpid/" 
+                                                                    principal.links.comparables 
+                                              "http://www.zillow.com/homes/comps/9396682_zpid/" 
+                                                                       principal.address.street 
+                                                                               "101 Dauphin Dr" 
+                                                                      principal.address.zipcode 
+                                                                                        "19063" 
+                                                                         principal.address.city 
+                                                                                        "Media" 
+                                                                        principal.address.state 
+                                                                                           "PA" 
+                                                                     principal.address.latitude 
+                                                                                    "39.938598" 
+                                                                    principal.address.longitude 
+                                                                                   "-75.367816" 
+                                                                    principal.taxAssessmentYear 
+                                                                                         "2018" 
+                                                                        principal.taxAssessment 
+                                                                                     "295200.0" 
+                                                                            principal.yearBuilt 
+                                                                                         "2012" 
+                                                                          principal.lotSizeSqFt 
+                                                                                       "348088" 
+                                                                         principal.finishedSqFt 
+                                                                                         "3652" 
+                                                                            principal.bathrooms 
+                                                                                          "3.0" 
+                                                                             principal.bedrooms 
+                                                                                            "3" 
+                                                                           principal.totalRooms 
+                                                                                            "8" 
+                                                                         principal.lastSoldDate 
+                                                                                   "01/02/2019" 
+                                                                   principal.lastSoldPrice.text 
+                                                                                       "528000" 
+                                                        principal.lastSoldPrice..attrs.currency 
+                                                                                          "USD" 
+                                                                principal.zestimate.amount.text 
+                                                                                       "536435" 
+                                                     principal.zestimate.amount..attrs.currency 
+                                                                                          "USD" 
+                                                               principal.zestimate.last-updated 
+                                                                                   "05/02/2019" 
+                                                   principal.zestimate.oneWeekChange.deprecated 
+                                                                                         "true" 
+                                                           principal.zestimate.valueChange.text 
+                                                                                         "2153" 
+                                                principal.zestimate.valueChange..attrs.duration 
+                                                                                           "30" 
+                                                principal.zestimate.valueChange..attrs.currency 
+                                                                                          "USD" 
+                                                            principal.zestimate.valuationRange1 
+                                                                                       "509613" 
+                                                    principal.zestimate.valuationRange.currency 
+                                                                                          "USD" 
+                                                            principal.zestimate.valuationRange3 
+                                                                                       "563257" 
+                                                    principal.zestimate.valuationRange.currency 
+                                                                                          "USD" 
+                                                                 principal.zestimate.percentile 
+                                                                                           "85" 
+                                                                     principal.localRealEstate1 
+                                                                                      "380,900" 
+                                                             principal.localRealEstate.overview 
+                                         "http://www.zillow.com/local-info/PA-Marple/r_398683/" 
+                                                       principal.localRealEstate.forSaleByOwner 
+                                                        "http://www.zillow.com/marple-pa/fsbo/" 
+                                                              principal.localRealEstate.forSale 
+                                                             "http://www.zillow.com/marple-pa/" 
+                                                                 principal.localRealEstate.name 
+                                                                                       "Marple" 
+                                                                   principal.localRealEstate.id 
+                                                                                       "398683" 
+                                                                 principal.localRealEstate.type 
+                                                                                         "city" 
+                                                                                   comparables1 
+                                                                                   "2087177793" 
+                                                                        comparables.homedetails 
+                 "https://www.zillow.com/homedetails/307-Avian-Media-PA-19063/2087177793_zpid/" 
+                                                                        comparables.mapthishome 
+                                                 "http://www.zillow.com/homes/2087177793_zpid/" 
+                                                                        comparables.comparables 
+                                           "http://www.zillow.com/homes/comps/2087177793_zpid/" 
+                                                                             comparables.street 
+                                                                                    "307 Avian" 
+                                                                            comparables.zipcode 
+                                                                                        "19063" 
+                                                                               comparables.city 
+                                                                                        "Media" 
+                                                                              comparables.state 
+                                                                                           "PA" 
+                                                                           comparables.latitude 
+                                                                                    "39.941449" 
+                                                                          comparables.longitude 
+                                                                                   "-75.366754" 
+                                                                                  comparables11 
+                                                                                         "2412" 
+                                                                                  comparables12 
+                                                                                          "4.0" 
+                                                                                  comparables13 
+                                                                                            "3" 
+                                                                                  comparables14 
+                                                                                   "10/30/2018" 
+                                                                               comparables.text 
+                                                                                       "421995" 
+                                                                    comparables..attrs.currency 
+                                                                                          "USD" 
+                                                                        comparables.amount.text 
+                                                                                       "470987" 
+                                                             comparables.amount..attrs.currency 
+                                                                                          "USD" 
+                                                                       comparables.last-updated 
+                                                                                   "05/02/2019" 
+                                                           comparables.oneWeekChange.deprecated 
+                                                                                         "true" 
+                                                                   comparables.valueChange.text 
+                                                                                        "-1290" 
+                                                        comparables.valueChange..attrs.duration 
+                                                                                           "30" 
+                                                        comparables.valueChange..attrs.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange1 
+                                                                                       "386209" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange3 
+                                                                                       "626413" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                         comparables.percentile 
+                                                                                            "0" 
+                                                                                  comparables29 
+                                                                                      "380,900" 
+                                                                           comparables.overview 
+                                         "http://www.zillow.com/local-info/PA-Marple/r_398683/" 
+                                                                     comparables.forSaleByOwner 
+                                                        "http://www.zillow.com/marple-pa/fsbo/" 
+                                                                            comparables.forSale 
+                                                             "http://www.zillow.com/marple-pa/" 
+                                                                               comparables.name 
+                                                                                       "Marple" 
+                                                                                 comparables.id 
+                                                                                       "398683" 
+                                                                               comparables.type 
+                                                                                         "city" 
+                                                                              comparables.score 
+                                                                                          "5.0" 
+                                                                                  comparables37 
+                                                                                   "2087223376" 
+                                                                        comparables.homedetails 
+          "https://www.zillow.com/homedetails/301-Corvus-Drive-Media-PA-19063/2087223376_zpid/" 
+                                                                        comparables.mapthishome 
+                                                 "http://www.zillow.com/homes/2087223376_zpid/" 
+                                                                        comparables.comparables 
+                                           "http://www.zillow.com/homes/comps/2087223376_zpid/" 
+                                                                             comparables.street 
+                                                                             "301 Corvus Drive" 
+                                                                            comparables.zipcode 
+                                                                                        "19063" 
+                                                                               comparables.city 
+                                                                                        "Media" 
+                                                                              comparables.state 
+                                                                                           "PA" 
+                                                                           comparables.latitude 
+                                                                                    "39.938611" 
+                                                                          comparables.longitude 
+                                                                                   "-75.366389" 
+                                                                                  comparables47 
+                                                                                         "3000" 
+                                                                                  comparables48 
+                                                                                          "3.0" 
+                                                                                  comparables49 
+                                                                                            "3" 
+                                                                                  comparables50 
+                                                                                   "10/26/2018" 
+                                                                               comparables.text 
+                                                                                       "423995" 
+                                                                    comparables..attrs.currency 
+                                                                                          "USD" 
+                                                                        comparables.amount.text 
+                                                                                       "514747" 
+                                                             comparables.amount..attrs.currency 
+                                                                                          "USD" 
+                                                                       comparables.last-updated 
+                                                                                   "05/02/2019" 
+                                                           comparables.oneWeekChange.deprecated 
+                                                                                         "true" 
+                                                                   comparables.valueChange.text 
+                                                                                        "-3712" 
+                                                        comparables.valueChange..attrs.duration 
+                                                                                           "30" 
+                                                        comparables.valueChange..attrs.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange1 
+                                                                                       "401503" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange3 
+                                                                                       "612549" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                         comparables.percentile 
+                                                                                            "0" 
+                                                                                  comparables65 
+                                                                                      "380,900" 
+                                                                           comparables.overview 
+                                         "http://www.zillow.com/local-info/PA-Marple/r_398683/" 
+                                                                     comparables.forSaleByOwner 
+                                                        "http://www.zillow.com/marple-pa/fsbo/" 
+                                                                            comparables.forSale 
+                                                             "http://www.zillow.com/marple-pa/" 
+                                                                               comparables.name 
+                                                                                       "Marple" 
+                                                                                 comparables.id 
+                                                                                       "398683" 
+                                                                               comparables.type 
+                                                                                         "city" 
+                                                                              comparables.score 
+                                                                                          "4.0" 
+                                                                                  comparables73 
+                                                                                   "2090552161" 
+                                                                        comparables.homedetails 
+             "https://www.zillow.com/homedetails/311-Avian-Aly-Media-PA-19063/2090552161_zpid/" 
+                                                                        comparables.mapthishome 
+                                                 "http://www.zillow.com/homes/2090552161_zpid/" 
+                                                                        comparables.comparables 
+                                           "http://www.zillow.com/homes/comps/2090552161_zpid/" 
+                                                                             comparables.street 
+                                                                                "311 Avian Aly" 
+                                                                            comparables.zipcode 
+                                                                                        "19063" 
+                                                                               comparables.city 
+                                                                                        "Media" 
+                                                                              comparables.state 
+                                                                                           "PA" 
+                                                                           comparables.latitude 
+                                                                                    "39.938611" 
+                                                                          comparables.longitude 
+                                                                                   "-75.366388" 
+                                                                                  comparables83 
+                                                                                         "2295" 
+                                                                                  comparables84 
+                                                                                          "2.5" 
+                                                                                  comparables85 
+                                                                                            "3" 
+                                                                                  comparables86 
+                                                                                   "11/29/2018" 
+                                                                               comparables.text 
+                                                                                       "449926" 
+                                                                    comparables..attrs.currency 
+                                                                                          "USD" 
+                                                                        comparables.amount.text 
+                                                                                       "440321" 
+                                                             comparables.amount..attrs.currency 
+                                                                                          "USD" 
+                                                                       comparables.last-updated 
+                                                                                   "05/02/2019" 
+                                                           comparables.oneWeekChange.deprecated 
+                                                                                         "true" 
+                                                                   comparables.valueChange.text 
+                                                                                       "-22059" 
+                                                        comparables.valueChange..attrs.duration 
+                                                                                           "30" 
+                                                        comparables.valueChange..attrs.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange1 
+                                                                                       "356660" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange3 
+                                                                                       "550401" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                         comparables.percentile 
+                                                                                            "0" 
+                                                                                 comparables101 
+                                                                                      "380,900" 
+                                                                           comparables.overview 
+                                         "http://www.zillow.com/local-info/PA-Marple/r_398683/" 
+                                                                     comparables.forSaleByOwner 
+                                                        "http://www.zillow.com/marple-pa/fsbo/" 
+                                                                            comparables.forSale 
+                                                             "http://www.zillow.com/marple-pa/" 
+                                                                               comparables.name 
+                                                                                       "Marple" 
+                                                                                 comparables.id 
+                                                                                       "398683" 
+                                                                               comparables.type 
+                                                                                         "city" 
+                                                                              comparables.score 
+                                                                                          "4.0" 
+                                                                                 comparables109 
+                                                                                   "2090932091" 
+                                                                        comparables.homedetails 
+             "https://www.zillow.com/homedetails/303-Avian-Aly-Media-PA-19063/2090932091_zpid/" 
+                                                                        comparables.mapthishome 
+                                                 "http://www.zillow.com/homes/2090932091_zpid/" 
+                                                                        comparables.comparables 
+                                           "http://www.zillow.com/homes/comps/2090932091_zpid/" 
+                                                                             comparables.street 
+                                                                                "303 Avian Aly" 
+                                                                            comparables.zipcode 
+                                                                                        "19063" 
+                                                                               comparables.city 
+                                                                                        "Media" 
+                                                                              comparables.state 
+                                                                                           "PA" 
+                                                                           comparables.latitude 
+                                                                                    "39.938611" 
+                                                                          comparables.longitude 
+                                                                                   "-75.366388" 
+                                                                                 comparables119 
+                                                                                         "2741" 
+                                                                                 comparables120 
+                                                                                          "2.5" 
+                                                                                 comparables121 
+                                                                                            "3" 
+                                                                                 comparables122 
+                                                                                   "11/28/2018" 
+                                                                               comparables.text 
+                                                                                       "447295" 
+                                                                    comparables..attrs.currency 
+                                                                                          "USD" 
+                                                                        comparables.amount.text 
+                                                                                       "487119" 
+                                                             comparables.amount..attrs.currency 
+                                                                                          "USD" 
+                                                                       comparables.last-updated 
+                                                                                   "05/02/2019" 
+                                                           comparables.oneWeekChange.deprecated 
+                                                                                         "true" 
+                                                                   comparables.valueChange.text 
+                                                                                        "-1985" 
+                                                        comparables.valueChange..attrs.duration 
+                                                                                           "30" 
+                                                        comparables.valueChange..attrs.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange1 
+                                                                                       "394566" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange3 
+                                                                                       "594285" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                         comparables.percentile 
+                                                                                            "0" 
+                                                                                 comparables137 
+                                                                                      "380,900" 
+                                                                           comparables.overview 
+                                         "http://www.zillow.com/local-info/PA-Marple/r_398683/" 
+                                                                     comparables.forSaleByOwner 
+                                                        "http://www.zillow.com/marple-pa/fsbo/" 
+                                                                            comparables.forSale 
+                                                             "http://www.zillow.com/marple-pa/" 
+                                                                               comparables.name 
+                                                                                       "Marple" 
+                                                                                 comparables.id 
+                                                                                       "398683" 
+                                                                               comparables.type 
+                                                                                         "city" 
+                                                                              comparables.score 
+                                                                                          "4.0" 
+                                                                                 comparables145 
+                                                                                   "2084804200" 
+                                                                        comparables.homedetails 
+                "https://www.zillow.com/homedetails/301-Murray-Media-PA-19063/2084804200_zpid/" 
+                                                                        comparables.mapthishome 
+                                                 "http://www.zillow.com/homes/2084804200_zpid/" 
+                                                                        comparables.comparables 
+                                           "http://www.zillow.com/homes/comps/2084804200_zpid/" 
+                                                                             comparables.street 
+                                                                                   "301 Murray" 
+                                                                            comparables.zipcode 
+                                                                                        "19063" 
+                                                                               comparables.city 
+                                                                                        "Media" 
+                                                                              comparables.state 
+                                                                                           "PA" 
+                                                                           comparables.latitude 
+                                                                                      "39.9417" 
+                                                                          comparables.longitude 
+                                                                                     "-75.3664" 
+                                                                                 comparables155 
+                                                                                         "2666" 
+                                                                                 comparables156 
+                                                                                          "3.0" 
+                                                                                 comparables157 
+                                                                                            "3" 
+                                                                                 comparables158 
+                                                                                   "02/08/2019" 
+                                                                               comparables.text 
+                                                                                       "489215" 
+                                                                    comparables..attrs.currency 
+                                                                                          "USD" 
+                                                                        comparables.amount.text 
+                                                                                       "469340" 
+                                                             comparables.amount..attrs.currency 
+                                                                                          "USD" 
+                                                                       comparables.last-updated 
+                                                                                   "05/02/2019" 
+                                                           comparables.oneWeekChange.deprecated 
+                                                                                         "true" 
+                                                                    comparables.valuationRange1 
+                                                                                       "380165" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                    comparables.valuationRange3 
+                                                                                       "581982" 
+                                                            comparables.valuationRange.currency 
+                                                                                          "USD" 
+                                                                         comparables.percentile 
+                                                                                            "0" 
+                                                                                 comparables170 
+                                                                                      "380,900" 
+                                                                           comparables.overview 
+                                         "http://www.zillow.com/local-info/PA-Marple/r_398683/" 
+                                                                     comparables.forSaleByOwner 
+                                                        "http://www.zillow.com/marple-pa/fsbo/" 
+                                                                            comparables.forSale 
+                                                             "http://www.zillow.com/marple-pa/" 
+                                                                               comparables.name 
+                                                                                       "Marple" 
+                                                                                 comparables.id 
+                                                                                       "398683" 
+                                                                               comparables.type 
+                                                                                         "city" 
+                                                                              comparables.score 
+                                                                                          "2.0" 
+> do.call(rbind, results)
+                comp         comp         comp         comp         comp        
+principal       "9396682"    List,4       List,6       "2018"       "295200.0"  
+zpid            "2087177793" "2087223376" "2090552161" "2090932091" "2084804200"
+links           List,3       List,3       List,3       List,3       List,3      
+address         List,6       List,6       List,6       List,6       List,6      
+finishedSqFt    "2412"       "3000"       "2295"       "2741"       "2666"      
+bathrooms       "4.0"        "3.0"        "2.5"        "2.5"        "3.0"       
+bedrooms        "3"          "3"          "3"          "3"          "3"         
+lastSoldDate    "10/30/2018" "10/26/2018" "11/29/2018" "11/28/2018" "02/08/2019"
+lastSoldPrice   List,2       List,2       List,2       List,2       List,2      
+zestimate       List,6       List,6       List,6       List,6       List,6      
+localRealEstate List,3       List,3       List,3       List,3       List,3      
+.attrs          "5.0"        "4.0"        "4.0"        "4.0"        "2.0"       
+Warning message:
+In (function (..., deparse.level = 1)  :
+  number of columns of result is not a multiple of vector length (arg 1)
+> do.call(rbind, lapply(results,unlist))
+                         homedetails                                                                     
+principal   "9396682"    "https://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/"
+comparables "2087177793" "https://www.zillow.com/homedetails/307-Avian-Media-PA-19063/2087177793_zpid/"  
+            mapthishome                                                                                    
+principal   "http://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/#charts-and-data"
+comparables "http://www.zillow.com/homes/2087177793_zpid/"                                                 
+            comparables                                          street                                            zipcode          city    state  
+principal   "http://www.zillow.com/homes/9396682_zpid/"          "http://www.zillow.com/homes/comps/9396682_zpid/" "101 Dauphin Dr" "19063" "Media"
+comparables "http://www.zillow.com/homes/comps/2087177793_zpid/" "307 Avian"                                       "19063"          "Media" "PA"   
+            latitude    longitude                                                text     .attrs.currency amount.text amount..attrs.currency
+principal   "PA"        "39.938598"  "-75.367816" "2018" "295200.0" "2012"       "348088" "3652"          "3.0"       "3"                   
+comparables "39.941449" "-75.366754" "2412"       "4.0"  "3"        "10/30/2018" "421995" "USD"           "470987"    "USD"                 
+            last-updated oneWeekChange.deprecated valueChange.text valueChange..attrs.duration valueChange..attrs.currency valuationRange1
+principal   "8"          "01/02/2019"             "528000"         "USD"                       "536435"                    "USD"          
+comparables "05/02/2019" "true"                   "-1290"          "30"                        "USD"                       "386209"       
+            valuationRange.currency valuationRange3 valuationRange.currency percentile           overview                                              
+principal   "05/02/2019"            "true"          "2153"                  "30"       "USD"     "509613"                                              
+comparables "USD"                   "626413"        "USD"                   "0"        "380,900" "http://www.zillow.com/local-info/PA-Marple/r_398683/"
+            forSaleByOwner                          forSale                            name     id       type     
+principal   "USD"                                   "563257"                           "USD"    "85"     "380,900"
+comparables "http://www.zillow.com/marple-pa/fsbo/" "http://www.zillow.com/marple-pa/" "Marple" "398683" "city"   
+            score                                                                                         
+principal   "http://www.zillow.com/local-info/PA-Marple/r_398683/" "http://www.zillow.com/marple-pa/fsbo/"
+comparables "5.0"                                                  "2087223376"                           
+            homedetails                                                                           mapthishome                                   
+principal   "http://www.zillow.com/marple-pa/"                                                    "Marple"                                      
+comparables "https://www.zillow.com/homedetails/301-Corvus-Drive-Media-PA-19063/2087223376_zpid/" "http://www.zillow.com/homes/2087223376_zpid/"
+            comparables                                          street             zipcode  
+principal   "398683"                                             "city"             "9396682"
+comparables "http://www.zillow.com/homes/comps/2087223376_zpid/" "301 Corvus Drive" "19063"  
+            city                                                                            
+principal   "https://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/"
+comparables "Media"                                                                         
+            state                                                                                           latitude                                   
+principal   "http://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/#charts-and-data" "http://www.zillow.com/homes/9396682_zpid/"
+comparables "PA"                                                                                            "39.938611"                                
+            longitude                                                                                       text        .attrs.currency amount.text
+principal   "http://www.zillow.com/homes/comps/9396682_zpid/" "101 Dauphin Dr" "19063" "Media" "PA"         "39.938598" "-75.367816"    "2018"     
+comparables "-75.366389"                                      "3000"           "3.0"   "3"     "10/26/2018" "423995"    "USD"           "514747"   
+            amount..attrs.currency last-updated oneWeekChange.deprecated valueChange.text valueChange..attrs.duration valueChange..attrs.currency
+principal   "295200.0"             "2012"       "348088"                 "3652"           "3.0"                       "3"                        
+comparables "USD"                  "05/02/2019" "true"                   "-3712"          "30"                        "USD"                      
+            valuationRange1 valuationRange.currency valuationRange3 valuationRange.currency percentile          
+principal   "8"             "01/02/2019"            "528000"        "USD"                   "536435"   "USD"    
+comparables "401503"        "USD"                   "612549"        "USD"                   "0"        "380,900"
+            overview                                               forSaleByOwner                          forSale                            name    
+principal   "05/02/2019"                                           "true"                                  "2153"                             "30"    
+comparables "http://www.zillow.com/local-info/PA-Marple/r_398683/" "http://www.zillow.com/marple-pa/fsbo/" "http://www.zillow.com/marple-pa/" "Marple"
+            id       type     score              homedetails                                                                       
+principal   "USD"    "509613" "USD" "563257"     "USD"                                                                             
+comparables "398683" "city"   "4.0" "2090552161" "https://www.zillow.com/homedetails/311-Avian-Aly-Media-PA-19063/2090552161_zpid/"
+            mapthishome                                    comparables                                         
+principal   "85"                                           "380,900"                                           
+comparables "http://www.zillow.com/homes/2090552161_zpid/" "http://www.zillow.com/homes/comps/2090552161_zpid/"
+            street                                                 zipcode                                 city                               state   
+principal   "http://www.zillow.com/local-info/PA-Marple/r_398683/" "http://www.zillow.com/marple-pa/fsbo/" "http://www.zillow.com/marple-pa/" "Marple"
+comparables "311 Avian Aly"                                        "19063"                                 "Media"                            "PA"    
+            latitude    longitude                                                                                              
+principal   "398683"    "city"       "9396682" "https://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/"
+comparables "39.938611" "-75.366388" "2295"    "2.5"                                                                           
+                                                                                                                                                       
+principal   "http://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/#charts-and-data" "http://www.zillow.com/homes/9396682_zpid/"
+comparables "3"                                                                                             "11/29/2018"                               
+            text                                              .attrs.currency  amount.text amount..attrs.currency last-updated oneWeekChange.deprecated
+principal   "http://www.zillow.com/homes/comps/9396682_zpid/" "101 Dauphin Dr" "19063"     "Media"                "PA"         "39.938598"             
+comparables "449926"                                          "USD"            "440321"    "USD"                  "05/02/2019" "true"                  
+            valueChange.text valueChange..attrs.duration valueChange..attrs.currency valuationRange1 valuationRange.currency valuationRange3
+principal   "-75.367816"     "2018"                      "295200.0"                  "2012"          "348088"                "3652"         
+comparables "-22059"         "30"                        "USD"                       "356660"        "USD"                   "550401"       
+            valuationRange.currency percentile           overview                                               forSaleByOwner                         
+principal   "3.0"                   "3"        "8"       "01/02/2019"                                           "528000"                               
+comparables "USD"                   "0"        "380,900" "http://www.zillow.com/local-info/PA-Marple/r_398683/" "http://www.zillow.com/marple-pa/fsbo/"
+            forSale                            name     id       type         score              
+principal   "USD"                              "536435" "USD"    "05/02/2019" "true" "2153"      
+comparables "http://www.zillow.com/marple-pa/" "Marple" "398683" "city"       "4.0"  "2090932091"
+            homedetails                                                                        mapthishome                                   
+principal   "30"                                                                               "USD"                                         
+comparables "https://www.zillow.com/homedetails/303-Avian-Aly-Media-PA-19063/2090932091_zpid/" "http://www.zillow.com/homes/2090932091_zpid/"
+            comparables                                          street          zipcode  city    state latitude   
+principal   "509613"                                             "USD"           "563257" "USD"   "85"  "380,900"  
+comparables "http://www.zillow.com/homes/comps/2090932091_zpid/" "303 Avian Aly" "19063"  "Media" "PA"  "39.938611"
+            longitude                                                                                                                                 
+principal   "http://www.zillow.com/local-info/PA-Marple/r_398683/" "http://www.zillow.com/marple-pa/fsbo/" "http://www.zillow.com/marple-pa/" "Marple"
+comparables "-75.366388"                                           "2741"                                  "2.5"                              "3"     
+                         text     .attrs.currency amount.text                                                                     
+principal   "398683"     "city"   "9396682"       "https://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/"
+comparables "11/28/2018" "447295" "USD"           "487119"                                                                        
+            amount..attrs.currency                                                                          last-updated                               
+principal   "http://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/#charts-and-data" "http://www.zillow.com/homes/9396682_zpid/"
+comparables "USD"                                                                                           "05/02/2019"                               
+            oneWeekChange.deprecated                          valueChange.text valueChange..attrs.duration valueChange..attrs.currency valuationRange1
+principal   "http://www.zillow.com/homes/comps/9396682_zpid/" "101 Dauphin Dr" "19063"                     "Media"                     "PA"           
+comparables "true"                                            "-1985"          "30"                        "USD"                       "394566"       
+            valuationRange.currency valuationRange3 valuationRange.currency percentile           overview                                              
+principal   "39.938598"             "-75.367816"    "2018"                  "295200.0" "2012"    "348088"                                              
+comparables "USD"                   "594285"        "USD"                   "0"        "380,900" "http://www.zillow.com/local-info/PA-Marple/r_398683/"
+            forSaleByOwner                          forSale                            name     id       type         score                
+principal   "3652"                                  "3.0"                              "3"      "8"      "01/02/2019" "528000" "USD"       
+comparables "http://www.zillow.com/marple-pa/fsbo/" "http://www.zillow.com/marple-pa/" "Marple" "398683" "city"       "4.0"    "2084804200"
+            homedetails                                                                     mapthishome                                   
+principal   "536435"                                                                        "USD"                                         
+comparables "https://www.zillow.com/homedetails/301-Murray-Media-PA-19063/2084804200_zpid/" "http://www.zillow.com/homes/2084804200_zpid/"
+            comparables                                          street       zipcode city    state latitude  longitude                     
+principal   "05/02/2019"                                         "true"       "2153"  "30"    "USD" "509613"  "USD"      "563257" "USD" "85"
+comparables "http://www.zillow.com/homes/comps/2084804200_zpid/" "301 Murray" "19063" "Media" "PA"  "39.9417" "-75.3664" "2666"   "3.0" "3" 
+                         text                                                   .attrs.currency                        
+principal   "380,900"    "http://www.zillow.com/local-info/PA-Marple/r_398683/" "http://www.zillow.com/marple-pa/fsbo/"
+comparables "02/08/2019" "489215"                                               "USD"                                  
+            amount.text                        amount..attrs.currency last-updated oneWeekChange.deprecated valuationRange1
+principal   "http://www.zillow.com/marple-pa/" "Marple"               "398683"     "city"                   "9396682"      
+comparables "469340"                           "USD"                  "05/02/2019" "true"                   "380165"       
+            valuationRange.currency                                                         
+principal   "https://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/"
+comparables "USD"                                                                           
+            valuationRange3                                                                                 valuationRange.currency                    
+principal   "http://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/#charts-and-data" "http://www.zillow.com/homes/9396682_zpid/"
+comparables "581982"                                                                                        "USD"                                      
+            percentile                                                         overview                                              
+principal   "http://www.zillow.com/homes/comps/9396682_zpid/" "101 Dauphin Dr" "19063"                                               
+comparables "0"                                               "380,900"        "http://www.zillow.com/local-info/PA-Marple/r_398683/"
+            forSaleByOwner                          forSale                            name        id           type   score     
+principal   "Media"                                 "PA"                               "39.938598" "-75.367816" "2018" "295200.0"
+comparables "http://www.zillow.com/marple-pa/fsbo/" "http://www.zillow.com/marple-pa/" "Marple"    "398683"     "city" "2.0"     
+Warning message:
+In (function (..., deparse.level = 1)  :
+  number of columns of result is not a multiple of vector length (arg 1)
+> data_frame(do.call(rbind, lapply(results,unlist)))
+# A tibble: 2 x 1
+  `do.call(rbind,~ [,"homedetails"] [,"mapthishome"] [,"comparables"] [,"street"] [,"zipcode"] [,"city"] [,"state"] [,"latitude"] [,"longitude"] [,""]
+  <chr>            <chr>            <chr>            <chr>            <chr>       <chr>        <chr>     <chr>      <chr>         <chr>          <chr>
+1 9396682          https://www.zil~ http://www.zill~ http://www.zill~ http://www~ 101 Dauphin~ 19063     Media      PA            39.938598      -75.~
+2 2087177793       https://www.zil~ http://www.zill~ http://www.zill~ 307 Avian   19063        Media     PA         39.941449     -75.366754     2412 
+# ... with 166 more variables: [,""] <chr>, [,""] <chr>, [,""] <chr>, [,"text"] <chr>, [,".attrs.currency"] <chr>, [,"amount.text"] <chr>,
+#   [,"amount..attrs.currency"] <chr>, [,"last-updated"] <chr>, [,"oneWeekChange.deprecated"] <chr>, [,"valueChange.text"] <chr>,
+#   [,"valueChange..attrs.duration"] <chr>, [,"valueChange..attrs.currency"] <chr>, [,"valuationRange1"] <chr>, [,"valuationRange.currency"] <chr>,
+#   [,"valuationRange3"] <chr>, [,"valuationRange.currency"] <chr>, [,"percentile"] <chr>, [,""] <chr>, [,"overview"] <chr>, [,"forSaleByOwner"] <chr>,
+#   [,"forSale"] <chr>, [,"name"] <chr>, [,"id"] <chr>, [,"type"] <chr>, [,"score"] <chr>, [,""] <chr>, [,"homedetails"] <chr>, [,"mapthishome"] <chr>,
+#   [,"comparables"] <chr>, [,"street"] <chr>, [,"zipcode"] <chr>, [,"city"] <chr>, [,"state"] <chr>, [,"latitude"] <chr>, [,"longitude"] <chr>,
+#   [,""] <chr>, [,""] <chr>, [,""] <chr>, [,""] <chr>, [,"text"] <chr>, [,".attrs.currency"] <chr>, [,"amount.text"] <chr>,
+#   [,"amount..attrs.currency"] <chr>, [,"last-updated"] <chr>, [,"oneWeekChange.deprecated"] <chr>, [,"valueChange.text"] <chr>,
+#   [,"valueChange..attrs.duration"] <chr>, [,"valueChange..attrs.currency"] <chr>, [,"valuationRange1"] <chr>, [,"valuationRange.currency"] <chr>,
+#   [,"valuationRange3"] <chr>, [,"valuationRange.currency"] <chr>, [,"percentile"] <chr>, [,""] <chr>, [,"overview"] <chr>, [,"forSaleByOwner"] <chr>,
+#   [,"forSale"] <chr>, [,"name"] <chr>, [,"id"] <chr>, [,"type"] <chr>, [,"score"] <chr>, [,""] <chr>, [,"homedetails"] <chr>, [,"mapthishome"] <chr>,
+#   [,"comparables"] <chr>, [,"street"] <chr>, [,"zipcode"] <chr>, [,"city"] <chr>, [,"state"] <chr>, [,"latitude"] <chr>, [,"longitude"] <chr>,
+#   [,""] <chr>, [,""] <chr>, [,""] <chr>, [,""] <chr>, [,"text"] <chr>, [,".attrs.currency"] <chr>, [,"amount.text"] <chr>,
+#   [,"amount..attrs.currency"] <chr>, [,"last-updated"] <chr>, [,"oneWeekChange.deprecated"] <chr>, [,"valueChange.text"] <chr>,
+#   [,"valueChange..attrs.duration"] <chr>, [,"valueChange..attrs.currency"] <chr>, [,"valuationRange1"] <chr>, [,"valuationRange.currency"] <chr>,
+#   [,"valuationRange3"] <chr>, [,"valuationRange.currency"] <chr>, [,"percentile"] <chr>, [,""] <chr>, [,"overview"] <chr>, [,"forSaleByOwner"] <chr>,
+#   [,"forSale"] <chr>, [,"name"] <chr>, [,"id"] <chr>, [,"type"] <chr>, [,"score"] <chr>, [,""] <chr>, [,"homedetails"] <chr>, [,"mapthishome"] <chr>,
+#   ...
+Warning message:
+In (function (..., deparse.level = 1)  :
+  number of columns of result is not a multiple of vector length (arg 1)
+
+
+
+```{r}
+# turn off axis elements in ggplot for better visual comparison
+newTheme <- list(theme(line = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks = element_blank(), # turn off ticks
+      axis.title.x = element_blank(), # turn off titles
+      axis.title.y = element_blank(),
+      legend.position = "none")) # turn off legend
+```
+
+
+```{r}
+# read shapefile
+paBound <- readOGR(".", "ZillowNeighborhoods-PA")
+# convert to dataframe
+paBound_df <- fortify(paBound)
+```
+
+
+```{r}
+# plot map using ggplot
+paMap <- ggplot(paBound_df, aes(long,lat, group = group)) +
+  geom_polygon() +
+  coord_equal() +
+  labs(x = "Longitude (Degrees)",
+       y = "Latitude (Degrees)",
+      title = "PA Map Neighborhood ",
+      subtitle = "WGS84 Datum, Units: Degrees - Latitude / Longitude") +
+  scale_x_continuous(limits=c(-80.25,-79.75)) +
+  scale_y_continuous(limits=c(40.255, 40.55))
+
+paMap
+```
+
+
+
+a <- do.call(rbind, do.call(rbind, acs_t$geometry))
+2. create a geo.set using the geo.make() function (see section 4.2);
+3. optionally, use the acs.lookup() function to explore the variables you may want to download (see section 4.3.3 on page 20) ;
+4. use the acs.fetch() function to download data for your new geography (see section 4.3.1 on page 16); 
+
+As a teaser, here you can see one single command that will download ACS data on “Place of Birth for the Foreign-Born Population in the United States”
+for every tract in all four PSRC counties:
+> lots.o.data=acs.fetch(geo=geo.make(state="WA", county=c(33,35,53,61), tract="*"), table.number="B05006")
+
+```{r}
+ utah = readOGR(".", "ZillowNeighborhoods-PA")
+  # utah@data$id = rownames(utah@data)
+  # utah.points = fortify(utah, region="id")
+  # utah.df = join(utah.points, utah@data, by="id")
+
+ggplot(utah.df) + 
+  aes(long,lat,group=group,fill=LEVEL3_NAM) + 
+  geom_polygon() +
+  geom_path(color="white") +
+  coord_equal() +
+  scale_fill_brewer("Utah Ecoregion")
+
+or
+
+utah.points = fortify.SpatialPolygonsDataFrame(utah, region="LEVEL3")
+  names(utah.points)[which(names(utah.points)=="id")] = "LEVEL3"
+  utah.df = join(utah.points, utah@data, by="LEVEL3")
+  ggplot(utah.df) + 
+    aes(long,lat,group=group,fill=LEVEL3_NAM) + 
+    geom_polygon(data=subset(utah.df,LEVEL3!=19)) +
+    geom_polygon(data=subset(utah.df,LEVEL3==19)) +
+    geom_path(color="white") +
+    coord_equal() +
+    scale_fill_brewer("Utah Ecoregion")
+
+```
+
+
+```{r}
+pal <- colorBin("Greens", domain = acs_value$estimate, n = 9)
+
+acs_value %>%
+    st_transform(crs = "+init=epsg:4326") %>%
+    leaflet() %>%s
+    addProviderTiles(provider = "CartoDB.Positron") %>%
+    addPolygons(popup = ~ str_extract(NAME, "^([^,]*)"),
+                stroke = FALSE,
+                smoothFactor = 0,
+                fillOpacity = 1,
+                color = ~ pal(estimate)) %>%
+    addLegend("bottomright", 
+              pal = pal, 
+              values = ~ estimate,
+              title = "Median House Value",
+              opacity = 1)
+```

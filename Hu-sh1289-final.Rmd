@@ -1,0 +1,591 @@
+---
+title: "Hu-sh1289-final"
+Author: "Shanshan Hu"
+output: html_document
+---
+
+# My github: https://github.com/ShanshanHoo/test/tree/geo
+# Credit ? OpenStreetMap contributors
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## load the packages
+
+```{r}
+library(tidyverse)
+library(rvest)   # rvest::zillow		Scrape housing info from tripadvisor
+library(lubridate)
+library(stringr)
+library(broom) # For problem 3
+library(stringi)
+library(ggplot2)
+
+library(RCurl)
+library(XML)
+library(ZillowR)
+
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(readxl)
+library(reshape2)
+library(rgdal)
+library(ggplot2)
+library(rgeos)
+library(raster)
+library(sf)
+library(leaflet)
+library(reshape2)
+library(data.table)
+```
+
+## Data source (1) Zillow
+
+https://www.zillow.com/howto/api/APIOverview.htm
+.	API Categories: Home Valuation, Property, Demographics, Mortgage Rates & Payment Estimates
+.	Architectural Style: REST
+.	Supported Request Formats: Unknown
+.	Supported Response Formats: XML
+http://www.zillow.com/webservice/GetRegionChildren.htm
+https://www.zillow.com/research/data/
+Geo zip file:
+https://www.zillow.com/howto/api/neighborhood-boundaries.htm
+United States and 50 Largest Metro Areas: This month
+https://www.zillow.com/research/local-market-reports/
+
+```{r}
+set_zillow_web_service_id('X1-ZWz180j32k8qob_ako3m')
+
+
+zillow_dwnload <- xmlParse("http://files.zillowstatic.com/") %>% xmlToList("Content")
+zillow_dwnload <- unlist(zillow_dwnload, use.names = TRUE) %>% as_tibble()
+zillow_dwnload <- subset(zillow_dwnload, grepl("^research/preview/Neighborhood", zillow_dwnload[[1]]))
+zillow_dwnload <- zillow_dwnload$value %>% str_replace_all("preview", "public") %>% as_data_frame()
+
+```
+
+# Zillow from file
+
+```{r}
+library(jsonlite)
+z0 <- fromJSON("http://files.zillowstatic.com/research/public/StaticFiles/Decade/Data/LatLongs/Philadelphia_2010.json")
+
+z6 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/Neighborhood_Zhvi_AllHomes.csv", col_names = TRUE) %>% subset(CountyName=="Philadelphia County") #county philadelphia
+z6_1 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[74,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="1 bedroom")
+z6_2 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[75,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="2 bedroom")
+z6_3 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[76,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="3 bedroom")
+z6_4 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[77,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="4 bedroom")
+z6_5 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[78,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="5 bedroom and more")
+z6_6 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[82,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="CondCoop")
+z6_7 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[85,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="SingleFamily")
+
+# read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[2,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") #county philadelphia
+
+z8 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/Neighborhood_MedianListingPricePerSqft_AllHomes.csv", col_names = TRUE) %>% subset(CountyName=="Philadelphia County") #county philadelphia
+z8_1 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[42,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="1 bedroom")
+z8_2 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[43,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="2 bedroom")
+z8_3 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[44,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="3 bedroom")
+z8_4 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[45,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County")#%>%mutate("type"="4 bedroom")
+z8_5 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[46,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County")#%>%mutate("type"="5 bedroom and more")
+z8_6 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[48,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="CondCoop")
+z8_7 <- read_csv(paste0("http://files.zillowstatic.com/", zillow_dwnload[49,1], sep=""), col_names = TRUE) %>% subset(CountyName=="Philadelphia County") %>% mutate("type"="SingleFamily")
+
+z10 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/Sale_Counts_Neighborhood.csv", col_names = TRUE) %>% mutate("type"="SaleCount")#only have region name and ID
+
+z11 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/Sale_Prices_Neighborhood.csv", col_names = TRUE) %>% mutate("type"="SalePrice")#only have region name and ID
+
+z12 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/InventoryMeasure_Neighborhood_Public.csv", col_names = TRUE) %>% subset(CountyName=="Philadelphia") #county philadelphia
+
+z13 <- read_csv("http://files.zillowstatic.com/research/public/County/MarketHealthIndex_County.csv", col_names = TRUE) %>% subset(RegionName=="Philadelphia County")  #county philadelphia
+
+z14 <- read_csv("http://files.zillowstatic.com/research/public/CountyCrossWalk_Zillow.csv", col_names = TRUE) #id and name look-up
+
+z15 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/NewMonthlyListings_SSA_AllHomes_Neighborhood.csv", col_names = TRUE)
+
+z16 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/MonthlyListings_SSA_AllHomes_Neighborhood.csv", col_names = TRUE)
+
+
+z17 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/MedianDailyListings_SSA_AllHomes_Neighborhood.csv", col_names = TRUE)
+
+z18 <- read_csv("http://files.zillowstatic.com/research/public/Neighborhood/Neighborhood_MedianListingPrice_AllHomes.csv", col_names = TRUE) %>% subset(CountyName=="Philadelphia County") #county philadelphia
+
+```
+
+
+
+```{r}
+zhvi_nbed <- rbind.data.frame(z6_1,z6_2,z6_3,z6_4,z6_5) %>% gather(Date, ZHVI, 8:283)
+zhvi_nbed <- zhvi_nbed[rowSums(is.na(zhvi_nbed[,10]))!=1,]
+zhvi_typ <- rbind.data.frame(z6_6,z6_7) %>% gather(Date, ZHVI, 8:283)
+zhvi_typ <- zhvi_typ[rowSums(is.na(zhvi_typ[,10]))!=1,]
+
+zlsprice_nbed <- rbind.fill(z8_1,z8_2,z8_3) %>% gather(Date, PPerSqft, 7:116)
+zlsprice_nbed <- drop_na(zlsprice_nbed)
+zlsprice_typ <- rbind.fill(z8_6,z8_7) %>% gather(Date, PPerSqft, 7:116)
+zlsprice_typ <- drop_na(zlsprice_typ)
+
+
+zregion_name <- z6 %>% dplyr::select("RegionID","RegionName")
+zsale_count <- zregion_name %>% inner_join(z10) %>% mutate("type"="SaleCount")
+zsale_price <- zregion_name %>% inner_join(z11) %>% mutate("type"="SalePrice")
+zsale <- rbind.fill(zsale_count,zsale_price) %>% gather(Date, Value, 5:138) %>% drop_na()
+
+z6 <- z6 %>% gather(Date, ZHVI, 8:283)
+z6 <- drop_na(z6)
+z6$Date <- z6$Date %>% parse_date_time("ym")#%>%format("%Y-%m")
+z6 <- z6%>%mutate(Month = format(Date, "%m"), Year = format(Date, "%Y")) %>% group_by(Month, Year)
+
+z8 <- z8 %>% gather(Date, PPerSqft, 7:117)
+z8 <- drop_na(z8)
+z8$Date <- z8$Date %>% parse_date_time("ym")#%>%format("%Y-%m")
+z8 <- z8%>%mutate(Month = format(Date, "%m"), Year = format(Date, "%Y")) %>% group_by(Month, Year)
+
+z18 <- z18 %>% gather(Date, Price, 7:117)
+z18 <- drop_na(z18)
+z18$Date <- z18$Date %>% parse_date_time("ym")#%>%format("%Y-%m")
+z18 <- z18%>%mutate(Month = format(Date, "%m"), Year = format(Date, "%Y")) %>% group_by(Month, Year)
+
+zexp_6 <- z6  %>% dplyr::select(Date, value=ZHVI,Month, Year) 
+zexp_6 <- melt(setDT(zexp_6), id.vars = "Year", measure.vars = "value")[, mean(value), by = Year] %>% dplyr::mutate(type="ZHVI") 
+zexp_18 <- z18 %>% dplyr::select(Date, value=Price,Month, Year)
+zexp_18 <- melt(setDT(zexp_18), id.vars = "Year", measure.vars = "value")[, mean(value), by = Year] %>% dplyr::mutate(type="Pice")
+zexp <- rbind(zexp_6,zexp_18)
+```
+
+
+```{r}
+z6_plot <- ggplot() + geom_jitter(z6,mapping=aes(x=Year,y=ZHVI,color=RegionName),size=0.01) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + scale_y_continuous(name="Zillow Home Value Index", labels = scales::comma)
+
+z6_plot
+ggsave("z6_plot_legend.png", dpi=1200, dev='png', height=4, width=5, units="in")
+print(z6_plot + theme(legend.position = "none"))
+ggsave("z6_plot.png", dpi=1200, dev='png', height=4, width=5, units="in")
+
+z8_plot <- ggplot() + geom_jitter(z8,mapping=aes(x=Year,y=PPerSqft,color=RegionName),size=0.01) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + scale_y_continuous(name="Median Listing Price PerSqft", labels = scales::comma, limits=c(0,700))
+z8_plot
+ggsave("z8_plot_legend.png", dpi=1200, dev='png', height=4, width=5, units="in")
+print(z8_plot + theme(legend.position = "none"))
+ggsave("z8_plot.png", dpi=1200, dev='png', height=4, width=5, units="in")
+
+zexp_plot <- ggplot() + geom_line(zexp,mapping=aes(x=Year,y=V1,color=type,group=type),size=1) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + scale_y_continuous(name="Zillow estimate V.S. Expectation", labels = scales::comma)
+ggsave("zexp_plot.png", dpi=1200, dev='png', height=4, width=5, units="in")
+```
+
+
+
+```{r}
+zhvi_nbed_lm <- zhvi_nbed %>% dplyr::select(-c(City,State,Metro,CountyName,SizeRank)) 
+zhvi_nbed_lm_plot <- ggplot(zhvi_nbed_lm, mapping = aes(x=RegionName,y=ZHVI,color=type)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(size = 2, angle = 90, hjust = 1)) + 
+  scale_y_continuous(name="Zillow Home Value Index", labels = scales::comma)
+
+zhvi_typ_lm <- zhvi_typ %>% dplyr::select(-c(City,State,Metro,CountyName,SizeRank)) 
+zhvi_typ_lm_plot <- ggplot(zhvi_typ_lm, mapping = aes(x=RegionName,y=ZHVI,color=type)) +
+  geom_point() + 
+  theme(axis.text.x = element_text(size = 2, angle = 90, hjust = 1)) + 
+  scale_y_continuous(name="Zillow Home Value Index", labels = scales::comma)
+
+```
+
+
+
+```{r}
+# I manually checked the source html to find how to turn photocard page
+#links <- sprintf("https://www.zillow.com/homes/Philadelphia-PA_rb/%d_p", 1:20)  
+
+links <- paste0('https://www.zillow.com/homes/?searchQueryState={%22mapBounds%22:{%22west%22:-75.38788418457034,%22east%22:-74.84818081542971,%22south%22:39.845515939525285,%22north%22:40.159388222934766},%22usersSearchTerm%22:%22Philadelphia%20PA%22,%22regionSelection%22:[{%22regionId%22:13271,%22regionType%22:6}],%22isMapVisible%22:true,%22mapZoom%22:11,%22filterState%22:{%22isNewConstruction%22:{%22value%22:false},%22isForSaleForeclosure%22:{%22value%22:false},%22isComingSoon%22:{%22value%22:false},%22isAuction%22:{%22value%22:false},%22isPreMarketForeclosure%22:{%22value%22:false},%22isPreMarketPreForeclosure%22:{%22value%22:false},%22isMakeMeMove%22:{%22value%22:false},%22isRecentlySold%22:{%22value%22:true}},%22isListVisible%22:true,%22pagination%22:{%22currentPage%22:', 1:20, "}}", sep="")
+
+z_photocard <- map(links, ~ {
+
+         houses <- read_html(.x) %>%
+                html_nodes(".photo-cards li article")
+         z_id <- houses %>% 
+                    html_attr("id")
+
+         address <- houses %>%
+                html_node(".zsg-photo-card-address") %>%
+                html_text()
+
+         price <- houses %>%
+             html_node(".zsg-photo-card-price") %>%
+             html_text() %>%
+             readr::parse_number()
+
+        params <- houses %>%
+             html_node(".zsg-photo-card-info") %>%
+             html_text() %>%
+             strsplit("&middot;")
+
+        beds <- params %>%
+             str_extract("\\d+(?=\\s*bds)") %>%
+             as.numeric()
+        baths <- params %>% 
+             str_extract("\\d+(?=\\s*ba)") %>%
+             as.numeric()
+        house_area <- params %>%
+               str_extract("[0-9,]+(?=\\+*\\s*sqft)") %>%
+               str_replace(",", "") %>%
+               as.numeric
+
+data_frame(price = price, beds= beds, baths=baths, house_area = house_area, id = z_id, address = address)
+
+                 }
+                 ) %>%
+
+    bind_rows(.id = 'page_no')
+ z_photocard <- drop_na(z_photocard)
+
+```
+
+
+###
+$response
+<response>
+ <properties>
+  <principal>
+   <zpid>9396682</zpid>
+   <links>
+    <homedetails>https://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/</homedetails>
+    <graphsanddata>http://www.zillow.com/homedetails/101-Dauphin-Dr-Media-PA-19063/9396682_zpid/#charts-and-data</graphsanddata>
+    <mapthishome>http://www.zillow.com/homes/9396682_zpid/</mapthishome>
+    <comparables>http://www.zillow.com/homes/comps/9396682_zpid/</comparables>
+   </links>
+   <address>
+    <street>101 Dauphin Dr</street>
+    <zipcode>19063</zipcode>
+    <city>Media</city>
+    <state>PA</state>
+    <latitude>39.938598</latitude>
+    <longitude>-75.367816</longitude>
+   </address>
+   <taxAssessmentYear>2018</taxAssessmentYear>
+   <taxAssessment>295200.0</taxAssessment>
+   <yearBuilt>2012</yearBuilt>
+   <lotSizeSqFt>348088</lotSizeSqFt>
+   <finishedSqFt>3652</finishedSqFt>
+   <bathrooms>3.0</bathrooms>
+   <bedrooms>3</bedrooms>
+   <totalRooms>8</totalRooms>
+   <lastSoldDate>01/02/2019</lastSoldDate>
+   <lastSoldPrice currency="USD">528000</lastSoldPrice>
+   <zestimate>
+    <amount currency="USD">536435</amount>
+    <last-updated>05/02/2019</last-updated>
+    <oneWeekChange deprecated="true"/>
+    <valueChange duration="30" currency="USD">2153</valueChange>
+    <valuationRange>
+     <low currency="USD">509613</low>
+     <high currency="USD">563257</high>
+    </valuationRange>
+    <percentile>85</percentile>
+   </zestimate>
+   <localRealEstate>
+    <region name="Marple" id="398683" type="city">
+     <zindexValue>380,900</zindexValue>
+     <links>
+      <overview>http://www.zillow.com/local-info/PA-Marple/r_398683/</overview>
+      <forSaleByOwner>http://www.zillow.com/marple-pa/fsbo/</forSaleByOwner>
+      <forSale>http://www.zillow.com/marple-pa/</forSale>
+     </links>
+    </region>
+   </localRealEstate>
+  </principal>
+  <comparables>
+   <comp score="5.0">
+    <zpid>2087177793</zpid>
+    <links>
+     <homedetails>https://www.zillow.com/homedetails/307-Avian-Media-PA-19063/2087177793_zpid/</homedetails>
+     <mapthishome>http://www.zillow.com/homes/2087177793_zpid/</mapthishome>
+     <comparables>http://www.zillow.com/homes/comps/2087177793_zpid/</comparables>
+    </links>
+    <address>
+     <street>307 Avian</street>
+     <zipcode>19063</zipcode>
+     <city>Media</city>
+     <state>PA</state>
+     <latitude>39.941449</latitude>
+     <longitude>-75.366754</longitude>
+    </address>
+    <finishedSqFt>2412</finishedSqFt>
+    <bathrooms>4.0</bathrooms>
+    <bedrooms>3</bedrooms>
+    <lastSoldDate>10/30/2018</lastSoldDate>
+    <lastSoldPrice currency="USD">421995</lastSoldPrice>
+    <zestimate>
+     <amount currency="USD">470987</amount>
+     <last-updated>05/02/2019</last-updated>
+     <oneWeekChange deprecated="true"/>
+     <valueChange duration="30" currency="USD">-1290</valueChange>
+     <valuationRange>
+      <low currency="USD">386209</low>
+      <high currency="USD">626413</high>
+     </valuationRange>
+     <percentile>0</percentile>
+    </zestimate>
+    <localRealEstate>
+     <region name="Marple" id="398683" type="city">
+      <zindexValue>380,900</zindexValue>
+      <links>
+       <overview>http://www.zillow.com/local-info/PA-Marple/r_398683/</overview>
+       <forSaleByOwner>http://www.zillow.com/marple-pa/fsbo/</forSaleByOwner>
+       <forSale>http://www.zillow.com/marple-pa/</forSale>
+      </links>
+     </region>
+    </localRealEstate>
+   </comp>
+   <comp score="4.0">
+    <zpid>2087223376</zpid>
+    <links>
+     <homedetails>https://www.zillow.com/homedetails/301-Corvus-Drive-Media-PA-19063/2087223376_zpid/</homedetails>
+     <mapthishome>http://www.zillow.com/homes/2087223376_zpid/</mapthishome>
+     <comparables>http://www.zillow.com/homes/comps/2087223376_zpid/</comparables>
+    </links>
+    <address>
+     <street>301 Corvus Drive</street>
+     <zipcode>19063</zipcode>
+     <city>Media</city>
+     <state>PA</state>
+     <latitude>39.938611</latitude>
+     <longitude>-75.366389</longitude>
+    </address>
+    <finishedSqFt>3000</finishedSqFt>
+    <bathrooms>3.0</bathrooms>
+    <bedrooms>3</bedrooms>
+    <lastSoldDate>10/26/2018</lastSoldDate>
+    <lastSoldPrice currency="USD">423995</lastSoldPrice>
+    <zestimate>
+     <amount currency="USD">514747</amount>
+     <last-updated>05/02/2019</last-updated>
+     <oneWeekChange deprecated="true"/>
+     <valueChange duration="30" currency="USD">-3712</valueChange>
+     <valuationRange>
+      <low currency="USD">401503</low>
+      <high currency="USD">612549</high>
+     </valuationRange>
+     <percentile>0</percentile>
+    </zestimate>
+    <localRealEstate>
+     <region name="Marple" id="398683" type="city">
+      <zindexValue>380,900</zindexValue>
+      <links>
+       <overview>http://www.zillow.com/local-info/PA-Marple/r_398683/</overview>
+       <forSaleByOwner>http://www.zillow.com/marple-pa/fsbo/</forSaleByOwner>
+       <forSale>http://www.zillow.com/marple-pa/</forSale>
+      </links>
+     </region>
+    </localRealEstate>
+   </comp>
+   <comp score="4.0">
+    <zpid>2090552161</zpid>
+    <links>
+     <homedetails>https://www.zillow.com/homedetails/311-Avian-Aly-Media-PA-19063/2090552161_zpid/</homedetails>
+     <mapthishome>http://www.zillow.com/homes/2090552161_zpid/</mapthishome>
+     <comparables>http://www.zillow.com/homes/comps/2090552161_zpid/</comparables>
+    </links>
+    <address>
+     <street>311 Avian Aly</street>
+     <zipcode>19063</zipcode>
+     <city>Media</city>
+     <state>PA</state>
+     <latitude>39.938611</latitude>
+     <longitude>-75.366388</longitude>
+    </address>
+    <finishedSqFt>2295</finishedSqFt>
+    <bathrooms>2.5</bathrooms>
+    <bedrooms>3</bedrooms>
+    <lastSoldDate>11/29/2018</lastSoldDate>
+    <lastSoldPrice currency="USD">449926</lastSoldPrice>
+    <zestimate>
+     <amount currency="USD">440321</amount>
+     <last-updated>05/02/2019</last-updated>
+     <oneWeekChange deprecated="true"/>
+     <valueChange duration="30" currency="USD">-22059</valueChange>
+     <valuationRange>
+      <low currency="USD">356660</low>
+      <high currency="USD">550401</high>
+     </valuationRange>
+     <percentile>0</percentile>
+    </zestimate>
+    <localRealEstate>
+     <region name="Marple" id="398683" type="city">
+      <zindexValue>380,900</zindexValue>
+      <links>
+       <overview>http://www.zillow.com/local-info/PA-Marple/r_398683/</overview>
+       <forSaleByOwner>http://www.zillow.com/marple-pa/fsbo/</forSaleByOwner>
+       <forSale>http://www.zillow.com/marple-pa/</forSale>
+      </links>
+     </region>
+    </localRealEstate>
+   </comp>
+   <comp score="4.0">
+    <zpid>2090932091</zpid>
+    <links>
+     <homedetails>https://www.zillow.com/homedetails/303-Avian-Aly-Media-PA-19063/2090932091_zpid/</homedetails>
+     <mapthishome>http://www.zillow.com/homes/2090932091_zpid/</mapthishome>
+     <comparables>http://www.zillow.com/homes/comps/2090932091_zpid/</comparables>
+    </links>
+    <address>
+     <street>303 Avian Aly</street>
+     <zipcode>19063</zipcode>
+     <city>Media</city>
+     <state>PA</state>
+     <latitude>39.938611</latitude>
+     <longitude>-75.366388</longitude>
+    </address>
+    <finishedSqFt>2741</finishedSqFt>
+    <bathrooms>2.5</bathrooms>
+    <bedrooms>3</bedrooms>
+    <lastSoldDate>11/28/2018</lastSoldDate>
+    <lastSoldPrice currency="USD">447295</lastSoldPrice>
+    <zestimate>
+     <amount currency="USD">487119</amount>
+     <last-updated>05/02/2019</last-updated>
+     <oneWeekChange deprecated="true"/>
+     <valueChange duration="30" currency="USD">-1985</valueChange>
+     <valuationRange>
+      <low currency="USD">394566</low>
+      <high currency="USD">594285</high>
+     </valuationRange>
+     <percentile>0</percentile>
+    </zestimate>
+    <localRealEstate>
+     <region name="Marple" id="398683" type="city">
+      <zindexValue>380,900</zindexValue>
+      <links>
+       <overview>http://www.zillow.com/local-info/PA-Marple/r_398683/</overview>
+       <forSaleByOwner>http://www.zillow.com/marple-pa/fsbo/</forSaleByOwner>
+       <forSale>http://www.zillow.com/marple-pa/</forSale>
+      </links>
+     </region>
+    </localRealEstate>
+   </comp>
+   <comp score="2.0">
+    <zpid>2084804200</zpid>
+    <links>
+     <homedetails>https://www.zillow.com/homedetails/301-Murray-Media-PA-19063/2084804200_zpid/</homedetails>
+     <mapthishome>http://www.zillow.com/homes/2084804200_zpid/</mapthishome>
+     <comparables>http://www.zillow.com/homes/comps/2084804200_zpid/</comparables>
+    </links>
+    <address>
+     <street>301 Murray</street>
+     <zipcode>19063</zipcode>
+     <city>Media</city>
+     <state>PA</state>
+     <latitude>39.9417</latitude>
+     <longitude>-75.3664</longitude>
+    </address>
+    <finishedSqFt>2666</finishedSqFt>
+    <bathrooms>3.0</bathrooms>
+    <bedrooms>3</bedrooms>
+    <lastSoldDate>02/08/2019</lastSoldDate>
+    <lastSoldPrice currency="USD">489215</lastSoldPrice>
+    <zestimate>
+     <amount currency="USD">469340</amount>
+     <last-updated>05/02/2019</last-updated>
+     <oneWeekChange deprecated="true"/>
+     <valueChange/>
+     <valuationRange>
+      <low currency="USD">380165</low>
+      <high currency="USD">581982</high>
+     </valuationRange>
+     <percentile>0</percentile>
+    </zestimate>
+    <localRealEstate>
+     <region name="Marple" id="398683" type="city">
+      <zindexValue>380,900</zindexValue>
+      <links>
+       <overview>http://www.zillow.com/local-info/PA-Marple/r_398683/</overview>
+       <forSaleByOwner>http://www.zillow.com/marple-pa/fsbo/</forSaleByOwner>
+       <forSale>http://www.zillow.com/marple-pa/</forSale>
+      </links>
+     </region>
+    </localRealEstate>
+   </comp>
+  </comparables>
+ </properties>
+</response>
+
+
+
+
+## Data source (5)
+
+https://www.census.gov/data/developers/data-sets/acs-5year.html
+Base API call: 	https://api.census.gov/data/2017/acs/acs5/cprofile
+
+```{r}
+library(leaflet)
+library(acs)
+library(tidycensus)
+library(choroplethr)
+library(tigris)
+library(sf)
+#census_api_key("f1fdffa783c407597f3c93ee46cf1714ad0c6b7f",install = TRUE,overwrite=TRUE)
+acs_t <- get_acs(geography = "tract", variables=c(house_value="B25075_001",total_unit="B25001_001",house_type="B11011_001",plumbing="B25047_001",kitchen="B25051_001",year_built="B25034_001",n_beds="B25041_001"),key="f1fdffa783c407597f3c93ee46cf1714ad0c6b7f",state = 42,county=101,geometry=TRUE)
+
+# acs_page <- read_html("https://api.census.gov/data/2017/acs/acs5/cprofile/310?get=CP05_2013_2017_001E,NAME&for=metropolitan%20statistical%20area/micropolitan%20statistical%20area:10420&key=f1fdffa783c407597f3c93ee46cf1714ad0c6b7f")
+# 
+# find out what's tract, place, moe, ZCTA and how to get block
+
+acs_t[which(acs_t$variable!='house_value'), ] %>% ggplot(aes(fill = estimate)) +
+  facet_wrap(~variable) +
+  geom_sf(color = NA) +
+  coord_sf(crs = 26915) + 
+  scale_fill_viridis_c(option = "A") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+
+
+acs_tt <- acs_t[which(acs_t$variable!='house_value'), ] %>% dplyr::select(-moe)
+acs_tt <- acs_tt %>% spread(key = variable, value = estimate)
+
+
+acs_cor<- get_acs(geography = "tract", variables=c(total_unit="B25001_001",house_type="B11011_001",plumbing="B25047_001",kitchen="B25051_001",year_built="B25034_001",n_beds="B25041_001"),key="f1fdffa783c407597f3c93ee46cf1714ad0c6b7f",state = 42,county=101,geometry=FALSE)
+
+acs_cor <- acs_cor %>% dplyr::select(-moe) %>% spread(key = variable, value = estimate)
+acs_cor <- acs_cor %>% dplyr::select(house_type:year_built)
+acs_cor_plot <- ggcorr(data = NULL, cor_matrix = cor(acs_cor, use = "everything"))
+
+```
+
+
+
+```{r echo = FALSE}
+acs_value <- acs_t[which(acs_t$variable=='house_value'), ]
+acs_value %>%
+  ggplot(aes(fill = estimate)) + 
+  geom_sf(color = NA) + 
+  coord_sf(crs = 26911) + 
+  scale_fill_viridis_c(option = "B") 
+
+pal1 <- colorBin("Greens", domain = acs_value$estimate, n = 9)
+
+acs_value %>%
+    st_transform(crs = "+init=epsg:4326") %>%
+    leaflet() %>%
+    addProviderTiles(provider = "CartoDB.Positron") %>%
+    addPolygons(popup = ~ str_extract(NAME, "^([^,]*)"),
+                stroke = FALSE,
+                smoothFactor = 0,
+                fillOpacity = 1,
+                color = ~ pal1(estimate)) %>%
+    addLegend("bottomright", 
+              pal = pal, 
+              values = ~ estimate,
+              title = "Median House Value",
+              opacity = 1)
+```
+
+
+
+
+```{r}
+api.key.install("f1fdffa783c407597f3c93ee46cf1714ad0c6b7f")
+
+filled.contour(acs_value$geometry, color=rainbow,plot.axes=contour(acs_value$estimate, add=T))
+```
+
+
+
